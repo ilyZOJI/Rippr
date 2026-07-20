@@ -1,0 +1,33 @@
+[package]
+name = "rippr-helper"
+version = "1.0.0"
+edition = "2024"
+description = "Cross-platform native media helper for the Rippr Adobe Premiere plugin"
+publish = false
+
+[dependencies]
+anyhow = "1.0"
+axum = { version = "0.8", features = ["ws"] }
+chrono = { version = "0.4", features = ["serde"] }
+dashmap = "6.1"
+directories = "6.0"
+futures-util = "0.3"
+open = "5.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+tokio = { version = "1.47", features = ["full"] }
+tokio-util = "0.7"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+url = "2.5"
+uuid = { version = "1.18", features = ["v4", "serde"] }
+which = "8.0"
+
+[dev-dependencies]
+tempfile = "3.20"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

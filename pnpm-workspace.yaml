@@ -1,0 +1,5 @@
+packages:
+  - plugin
+  - shared
+allowBuilds:
+  esbuild: true

@@ -1,0 +1,15 @@
+node_modules/
+.pnpm-store/
+dist/
+target/
+tmp/
+*.log
+.DS_Store
+.env
+.env.*
+!.env.example
+vendor/**/yt-dlp*
+vendor/**/ffmpeg*
+vendor/**/ffprobe*
+vendor/**/rippr-helper*
+

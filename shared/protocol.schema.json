@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rippr.app/schema/protocol-v1.json",
+  "title": "Rippr helper protocol",
+  "type": "object",
+  "oneOf": [
+    { "$ref": "#/$defs/request" },
+    { "$ref": "#/$defs/response" },
+    { "$ref": "#/$defs/event" }
+  ],
+  "$defs": {
+    "request": {
+      "type": "object",
+      "required": ["id", "method"],
+      "properties": {
+        "id": { "type": "string" },
+        "method": { "type": "string" },
+        "params": true
+      },
+      "additionalProperties": false
+    },
+    "response": {
+      "type": "object",
+      "required": ["id"],
+      "properties": {
+        "id": { "type": "string" },
+        "result": true,
+        "error": {
+          "type": "object",
+          "required": ["code", "message"],
+          "properties": {
+            "code": { "type": "string" },
+            "message": { "type": "string" },
+            "action": { "type": "string" },
+            "details": { "type": "string" }
+          }
+        }
+      }
+    },
+    "event": {
+      "type": "object",
+      "required": ["event", "payload"],
+      "properties": {
+        "event": { "type": "string" },
+        "payload": true
+      },
+      "additionalProperties": false
+    }
+  }
+}
+

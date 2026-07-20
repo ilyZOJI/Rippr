@@ -1,0 +1,24 @@
+{
+  "name": "@rippr/plugin",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@fontsource/oxanium": "5.2.8",
+    "@rippr/shared": "workspace:*",
+    "@spectrum-web-components/button": "0.37.0",
+    "@spectrum-web-components/progress-bar": "0.37.0",
+    "@spectrum-web-components/theme": "0.37.0"
+  },
+  "devDependencies": {
+    "@adobe/premierepro": "^26.3.0",
+    "@types/node": "^24.3.0",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.3"
+  }
+}
