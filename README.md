@@ -132,11 +132,12 @@ dist/windows/Rippr-Setup-1.0.0.exe
 ```
 
 The EXE embeds the production panel and native helper. When a user runs it,
-the installer downloads the Windows yt-dlp release and FFmpeg essentials
-build, records their versions, creates a `.ccx` package, and opens that
-package for Creative Cloud. The generated installer is intentionally ignored
-by Git; publish it as an asset on a GitHub Release rather than committing the
-binary to the source repository.
+the installer checks for operational yt-dlp, FFmpeg, and FFprobe binaries on
+the user's PATH and in previous Rippr caches. It downloads only missing or
+non-operational tools, records their versions, creates an updated `.ccx`
+package, and opens that package for Creative Cloud. The generated installer is
+intentionally ignored by Git; publish it as an asset on a GitHub Release
+rather than committing the binary to the source repository.
 
 Before publishing, the release owner should:
 

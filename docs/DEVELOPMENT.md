@@ -31,6 +31,8 @@ Windows yt-dlp and FFmpeg builds, assembles a Windows `.ccx` package with the
 helper and tools beside it, and opens that package for Creative Cloud to install
 into Premiere Pro. The user may need to approve the Creative Cloud prompt and
 restart Premiere after installation.
+On an update, the installer reuses operational tools found on `PATH` or in a
+previous Rippr cache and downloads only missing or broken dependencies.
 
 The installer uses the upstream yt-dlp release endpoint and the Gyan.dev
 FFmpeg Windows essentials build. Keep the upstream license files with every
