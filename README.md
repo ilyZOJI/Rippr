@@ -66,7 +66,7 @@ data.
 ### Requirements
 
 - Windows 10/11, macOS, or Linux for development
-- Node.js 20 or newer
+- Node.js 22.13 or newer (required by pnpm 11)
 - pnpm 11
 - Rust 1.85 or newer
 - Adobe Premiere Pro 25.6 or newer for host testing
@@ -173,6 +173,6 @@ license-handling requirements are documented in
 
 ## License
 
-This repository currently has no license file. Until the project owner adds a
-license, normal copyright applies and reuse/distribution permissions should
-not be assumed.
+Rippr is licensed under the [MIT License](LICENSE). Third-party components,
+including yt-dlp and FFmpeg/FFprobe, remain subject to their own licenses and
+notices in [`vendor/THIRD-PARTY-NOTICES.txt`](vendor/THIRD-PARTY-NOTICES.txt).
