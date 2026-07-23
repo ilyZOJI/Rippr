@@ -45,6 +45,11 @@ path so it can be opened manually. A Creative Cloud installation and a
 Premiere restart are required; the EXE cannot silently inject a panel into a
 running Premiere process.
 
+To remove Rippr's local helper, package, and bundled tools later, run
+`%LOCALAPPDATA%\Rippr\Uninstall-Rippr.cmd`. The uninstaller does not delete
+downloaded media or Premiere projects. Creative Cloud manages the installed
+panel separately and will be opened so it can be removed there as well.
+
 Only download media that you own or are authorized to download, and comply
 with the terms of the source website.
 

@@ -36,6 +36,8 @@ $payloadRoot = Join-Path $stage "payload"
 $sourceRoot = Join-Path $stage "source"
 $payloadZip = Join-Path $sourceRoot "rippr-payload.zip"
 $installScript = Join-Path $sourceRoot "Install-Rippr.ps1"
+$uninstallScript = Join-Path $sourceRoot "uninstall-rippr.ps1"
+$uninstallCmd = Join-Path $sourceRoot "uninstall-rippr.cmd"
 $noticesFile = Join-Path $sourceRoot "THIRD-PARTY-NOTICES.txt"
 $sedPath = Join-Path $stage "Rippr-Setup.sed"
 $outputPath = Join-Path $OutputDirectory "Rippr-Setup-1.0.0.exe"
@@ -60,6 +62,8 @@ try {
     Copy-Item -LiteralPath "helper\target\release\rippr-helper.exe" -Destination (Join-Path $payloadRoot "rippr-helper.exe") -Force
     Compress-Archive -Path (Join-Path $payloadRoot "*") -DestinationPath $payloadZip -CompressionLevel Optimal -Force
     Copy-Item -LiteralPath "scripts\install-rippr.ps1" -Destination $installScript -Force
+    Copy-Item -LiteralPath "scripts\uninstall-rippr.ps1" -Destination $uninstallScript -Force
+    Copy-Item -LiteralPath "scripts\uninstall-rippr.cmd" -Destination $uninstallCmd -Force
     Copy-Item -LiteralPath "vendor\THIRD-PARTY-NOTICES.txt" -Destination $noticesFile -Force
     Write-Host "==> Validating the installer payload" -ForegroundColor Cyan
     Invoke-Checked "PowerShell.exe" @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $installScript, "-ValidateOnly")
@@ -101,12 +105,16 @@ PostInstallCmd=<None>
 FILE0="Install-Rippr.ps1"
 FILE1="rippr-payload.zip"
 FILE2="THIRD-PARTY-NOTICES.txt"
+FILE3="uninstall-rippr.ps1"
+FILE4="uninstall-rippr.cmd"
 [SourceFiles]
 SourceFiles0=$source
 [SourceFiles0]
 %FILE0%=
 %FILE1%=
 %FILE2%=
+%FILE3%=
+%FILE4%=
 "@
     Set-Content -LiteralPath $sedPath -Value $sed -Encoding ASCII
 

@@ -41,6 +41,10 @@ a clean Windows machine.
 
 The browser preview uses the same UI. Add `?mock=1` to exercise analysis, progress, history, presets, settings, and notifications without external binaries.
 
+The Windows installation places `Uninstall-Rippr.cmd` under
+`%LOCALAPPDATA%\Rippr`. It removes Rippr's local package cache and bundled
+tools, then opens Creative Cloud for manual removal of the installed UXP panel.
+
 ## Native build matrix
 
 | Target | Rust target | Output directory |

@@ -58,6 +58,7 @@ impl Downloader {
         validate_url(raw_url)?;
         let settings = self.config.get().await;
         let executable = resolve_tool("yt-dlp", settings.yt_dlp_path.as_deref())?;
+        let retry_count = settings.retry_count.to_string();
         let output = timeout(
             Duration::from_secs(120),
             Command::new(executable)
@@ -67,6 +68,14 @@ impl Downloader {
                     "--no-warnings",
                     "--skip-download",
                     "--no-color",
+                    "--retries",
+                    &retry_count,
+                    "--extractor-retries",
+                    &retry_count,
+                    "--retry-sleep",
+                    "http:exp=1:16",
+                    "--retry-sleep",
+                    "extractor:exp=1:8",
                     raw_url,
                 ])
                 .stdin(Stdio::null())
@@ -196,7 +205,8 @@ impl Downloader {
         let mut command = Command::new(yt_dlp);
         command.args([
             "--no-playlist", "--progress", "--newline", "--progress-delta", "0.2", "--no-color", "--windows-filenames", "--trim-filenames", "180",
-            "--retries", &settings.retry_count.to_string(), "--fragment-retries", &settings.retry_count.to_string(),
+            "--retries", &settings.retry_count.to_string(), "--fragment-retries", &settings.retry_count.to_string(), "--extractor-retries", &settings.retry_count.to_string(),
+            "--retry-sleep", "http:exp=1:16", "--retry-sleep", "fragment:exp=1:16", "--retry-sleep", "extractor:exp=1:8",
             "--progress-template", "download:rippr-progress:%(progress._percent_str)s|%(progress._speed_str)s|%(progress.eta)s|%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.total_bytes_estimate)s",
             "--print", "after_move:rippr-file:%(filepath)s", "-o", &template,
         ]);

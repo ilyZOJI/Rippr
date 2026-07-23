@@ -56,9 +56,17 @@ impl RipprError {
             ),
             Self::JobNotFound => ("JOB_NOT_FOUND", "Refresh Rippr and try again."),
             Self::InvalidRequest(_) => ("INVALID_REQUEST", "Check the request and try again."),
+            Self::AnalysisFailed(details) if is_forbidden(details) => (
+                "SOURCE_FORBIDDEN",
+                "The source temporarily rejected the request. Refresh the link and retry, or update yt-dlp if it continues.",
+            ),
             Self::AnalysisFailed(_) => (
                 "ANALYSIS_FAILED",
                 "Confirm the media is public and supported, then try again.",
+            ),
+            Self::DownloadFailed(details) if is_forbidden(details) => (
+                "DOWNLOAD_FORBIDDEN",
+                "The source temporarily rejected the request. Wait a few seconds and retry, or update yt-dlp if it continues.",
             ),
             Self::DownloadFailed(_) => (
                 "DOWNLOAD_FAILED",
@@ -78,6 +86,11 @@ impl RipprError {
             },
         }
     }
+}
+
+fn is_forbidden(details: &str) -> bool {
+    let lower = details.to_ascii_lowercase();
+    lower.contains("http error 403") || lower.contains("403: forbidden")
 }
 
 impl From<std::io::Error> for RipprError {

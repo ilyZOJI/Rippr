@@ -71,6 +71,11 @@ try {
     if (!(Test-Path -LiteralPath $helperSource)) {
         throw "The native helper payload is missing."
     }
+    $uninstallerSource = Join-Path $PSScriptRoot "uninstall-rippr.ps1"
+    $uninstallerCmdSource = Join-Path $PSScriptRoot "uninstall-rippr.cmd"
+    if (!(Test-Path -LiteralPath $uninstallerSource) -or !(Test-Path -LiteralPath $uninstallerCmdSource)) {
+        throw "The uninstaller payload is missing. Rebuild the Windows installer."
+    }
     if ($ValidateOnly) {
         Write-Host "Payload validation passed for Rippr $Version." -ForegroundColor Green
         return
@@ -122,6 +127,8 @@ try {
     $packageZip = Join-Path $workRoot ("Rippr-" + $Version + ".zip")
     Compress-Archive -Path (Join-Path $packageRoot "*") -DestinationPath $packageZip -CompressionLevel Optimal -Force
     Copy-Item -LiteralPath $packageZip -Destination $persistentPackage -Force
+    Copy-Item -LiteralPath $uninstallerSource -Destination (Join-Path $InstallRoot "uninstall-rippr.ps1") -Force
+    Copy-Item -LiteralPath $uninstallerCmdSource -Destination (Join-Path $InstallRoot "Uninstall-Rippr.cmd") -Force
 
     Write-Step "Opening the Rippr plugin installer"
     if (!$SkipLaunch) {
@@ -138,6 +145,7 @@ try {
     Write-Host "`nRippr $Version is ready." -ForegroundColor Green
     Write-Host "Installer package: $persistentPackage"
     Write-Host "Installed package cache: $persistentRoot"
+    Write-Host "Uninstaller: $(Join-Path $InstallRoot 'Uninstall-Rippr.cmd')"
 } catch {
     Write-Host "`n[FAILED] $($_.Exception.Message)" -ForegroundColor Red
     Write-Host "The installer has not removed your existing Rippr installation."
