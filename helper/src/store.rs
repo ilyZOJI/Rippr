@@ -225,6 +225,7 @@ mod tests {
         store
             .update(AppSettingsPatch {
                 auto_import: Some(false),
+                use_temp_conversion_source: Some(false),
                 concurrent_downloads: Some(99),
                 ..Default::default()
             })
@@ -232,6 +233,7 @@ mod tests {
             .unwrap();
         let reloaded = ConfigStore::load(Some(path)).await.unwrap().get().await;
         assert!(!reloaded.auto_import);
+        assert!(!reloaded.use_temp_conversion_source);
         assert_eq!(reloaded.concurrent_downloads, 6);
         assert_eq!(
             reloaded.schema_version,

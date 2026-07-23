@@ -7,6 +7,7 @@ use std::{
     process::Stdio,
 };
 use tokio::process::Command;
+use uuid::Uuid;
 
 pub fn resolve_tool(name: &str, explicit: Option<&str>) -> Result<PathBuf, RipprError> {
     if let Some(path) = explicit.filter(|path| !path.trim().is_empty()) {
@@ -167,12 +168,16 @@ pub async fn folder_status(path: &str) -> Result<FolderStatus, RipprError> {
         return Err(RipprError::InvalidDestination);
     }
     match tokio::fs::metadata(&path_buf).await {
-        Ok(metadata) => Ok(FolderStatus {
-            path: path.into(),
-            exists: metadata.is_dir(),
-            writable: metadata.is_dir() && !metadata.permissions().readonly(),
-            disconnected: false,
-        }),
+        Ok(metadata) => {
+            let is_directory = metadata.is_dir();
+            let writable = is_directory && can_write_folder(&path_buf).await;
+            Ok(FolderStatus {
+                path: path.into(),
+                exists: is_directory,
+                writable,
+                disconnected: false,
+            })
+        }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(FolderStatus {
             path: path.into(),
             exists: false,
@@ -186,6 +191,22 @@ pub async fn folder_status(path: &str) -> Result<FolderStatus, RipprError> {
             disconnected: false,
         }),
         Err(error) => Err(error.into()),
+    }
+}
+
+async fn can_write_folder(path: &Path) -> bool {
+    let probe_path = path.join(format!(".rippr-write-test-{}.tmp", Uuid::new_v4()));
+    match tokio::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&probe_path)
+        .await
+    {
+        Ok(_) => {
+            let _ = tokio::fs::remove_file(probe_path).await;
+            true
+        }
+        Err(_) => false,
     }
 }
 
@@ -264,9 +285,26 @@ fn mount_root_missing(path: &Path) -> bool {
     #[cfg(target_os = "windows")]
     {
         if let Some(Component::Prefix(prefix)) = path.components().next() {
-            let root = PathBuf::from(prefix.as_os_str()).join("\\");
+            let root = PathBuf::from(format!("{}\\", prefix.as_os_str().to_string_lossy()));
             return !root.exists();
         }
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn reports_a_writable_existing_directory() {
+        let directory = tempfile::tempdir().expect("temporary directory should be created");
+        let status = folder_status(directory.path().to_string_lossy().as_ref())
+            .await
+            .expect("folder status should succeed");
+
+        assert!(status.exists);
+        assert!(status.writable);
+        assert!(!status.disconnected);
+    }
 }

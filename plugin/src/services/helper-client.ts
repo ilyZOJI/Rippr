@@ -178,7 +178,7 @@ const mockMetadata: MediaMetadata = {
 };
 
 const defaultMockSettings: AppSettings = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   defaultKind: "video",
   defaultVideoFormat: "mp4",
   defaultAudioFormat: "wav",
@@ -188,6 +188,7 @@ const defaultMockSettings: AppSettings = {
   autoImport: true,
   rememberLastDestination: true,
   clipboardMonitoring: false,
+  useTempConversionSource: true,
   concurrentDownloads: 2,
   retryCount: 3,
   namingTemplate: "%(title)s [%(resolution)s]",

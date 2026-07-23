@@ -31,7 +31,7 @@ interface Toast {
 }
 
 const initialSettings: AppSettings = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   defaultKind: "video",
   defaultVideoFormat: "mp4",
   defaultAudioFormat: "wav",
@@ -40,6 +40,7 @@ const initialSettings: AppSettings = {
   autoImport: true,
   rememberLastDestination: true,
   clipboardMonitoring: false,
+  useTempConversionSource: true,
   concurrentDownloads: 2,
   retryCount: 3,
   namingTemplate: "%(title)s [%(resolution)s]",
@@ -516,8 +517,8 @@ export class RipprApp {
     const progress = this.download!;
     const percent = Math.max(0, Math.min(100, progress.percent ?? 0));
     const terminal = ["completed", "failed", "cancelled"].includes(progress.status);
-    const converting = progress.status === "processing" && /conver|premiere-ready/i.test(progress.message ?? "");
-    const expectedBytes = this.estimatedDownloadBytes() ?? progress.totalBytes;
+    const converting = /conver|premiere-ready/i.test(progress.message ?? "");
+    const expectedBytes = converting ? progress.totalBytes : this.estimatedDownloadBytes() ?? progress.totalBytes;
     const progressValue = `${formatBytes(progress.downloadedBytes)} / ${formatBytes(expectedBytes)}`;
     const detailLabel = converting ? "Codec" : "Format";
     const detailValue = converting ? "H.264/AAC" : this.format.toUpperCase();
@@ -602,7 +603,9 @@ export class RipprApp {
           ${this.settingsSection("Downloads", `
             ${this.settingNumberSelect("Simultaneous files", "How many downloads Rippr may process at once", "setting-concurrent", this.settings.concurrentDownloads, 1, 6)}
             ${this.settingNumberSelect("Retry attempts", "How many times a failed transfer is retried", "setting-retries", this.settings.retryCount, 0, 10)}
+            ${this.settingToggle("Use temporary conversion files", "Stage originals outside the destination, then remove them after conversion", "setting-temp-conversion", this.settings.useTempConversionSource)}
             ${this.settingInput("Filename template", "setting-template", this.settings.namingTemplate, "%(title)s [%(resolution)s]", "Tokens: %(title)s, %(uploader)s, %(upload_date)s, %(resolution)s")}
+            <p class="settings-intro">Filename safety: Windows-invalid title characters are replaced with safe equivalents when Rippr creates the output filename. Custom filenames use underscores for unsafe characters.</p>
           `)}
           ${this.settingsSection("Quick folders", `
             <p class="settings-intro">Use the up and down arrows to reorder presets. Paths stay absolute so external-drive availability can be checked before every download.</p>
@@ -883,6 +886,7 @@ export class RipprApp {
   private bindSettingsEvents(): void {
     this.listenToggle("#setting-remember-destination", (checked) => void this.saveSettings({ rememberLastDestination: checked }));
     this.listenToggle("#setting-clipboard", (checked) => { void this.saveSettings({ clipboardMonitoring: checked }).then(() => this.configureClipboardMonitoring()); });
+    this.listenToggle("#setting-temp-conversion", (checked) => void this.saveSettings({ useTempConversionSource: checked }));
     this.listenValue("#setting-template", (value) => void this.saveSettings({ namingTemplate: value }));
     this.listenValue("#setting-ytdlp", (value) => void this.saveSettings({ ytDlpPath: value || undefined }));
     this.listenValue("#setting-ffmpeg", (value) => void this.saveSettings({ ffmpegPath: value || undefined }));
@@ -1009,9 +1013,14 @@ export class RipprApp {
   private async handleProgress(progress: DownloadProgress): Promise<void> {
     if (this.download && progress.jobId !== this.download.jobId) return;
     const previous = this.download?.jobId === progress.jobId ? this.download : undefined;
-    const totalBytes = progress.totalBytes ?? previous?.totalBytes ?? this.metadata?.estimatedBytes;
+    const conversionPhase = /conver|premiere-ready/i.test(progress.message ?? "");
+    const conversionFailure = progress.status === "failed" && conversionPhase;
+    const preserveDownloadMetrics = progress.status !== "processing" && !conversionFailure;
+    const totalBytes = progress.totalBytes
+      ?? (preserveDownloadMetrics ? previous?.totalBytes ?? this.metadata?.estimatedBytes : undefined);
     const downloadedBytes = progress.downloadedBytes
-      ?? (progress.status === "completed" ? totalBytes : previous?.downloadedBytes);
+      ?? (preserveDownloadMetrics && progress.status === "completed" ? totalBytes : undefined)
+      ?? (preserveDownloadMetrics ? previous?.downloadedBytes : undefined);
     const measuredPercent = downloadedBytes !== undefined && totalBytes
       ? (downloadedBytes / totalBytes) * 100
       : undefined;
@@ -1020,7 +1029,7 @@ export class RipprApp {
     // the conversion progress bar or its ETA.
     const reportedPercent = progress.status === "processing"
       ? (progress.percent ?? previous?.percent)
-      : measuredPercent ?? progress.percent ?? previous?.percent;
+      : measuredPercent ?? progress.percent ?? (conversionFailure ? undefined : previous?.percent);
     const percent = progress.status === "completed"
       ? 100
       : progress.status === "processing"

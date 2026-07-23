@@ -1,0 +1,15 @@
+Rippr uses the following third-party projects in its Windows release package.
+
+yt-dlp
+https://github.com/yt-dlp/yt-dlp
+License: Unlicense (the upstream LICENSE file is included when the installer
+can download it).
+
+FFmpeg / FFprobe
+https://ffmpeg.org/
+The Windows build is downloaded from https://www.gyan.dev/ffmpeg/builds/.
+Keep the COPYING, LICENSE, and README files from that archive with the
+published package and follow the build's stated GPL/LGPL terms.
+
+The Rippr installer downloads these dependencies over HTTPS at install time so
+the release does not ship stale media-site support or codec binaries.

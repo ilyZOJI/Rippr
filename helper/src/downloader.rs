@@ -24,7 +24,7 @@ use tokio::{
     io::{AsyncBufReadExt, BufReader},
     process::Command,
     sync::{Notify, broadcast, mpsc},
-    time::timeout,
+    time::{sleep, timeout},
 };
 use tokio_util::sync::CancellationToken;
 use url::Url;
@@ -182,7 +182,17 @@ impl Downloader {
         } else {
             resolve_tool("ffmpeg", settings.ffmpeg_path.as_deref()).ok()
         };
-        let template = output_template(&request, &settings.naming_template);
+        let temp_source_dir =
+            if request.transcode_for_premiere && settings.use_temp_conversion_source {
+                Some(create_conversion_temp_dir(job_id).await?)
+            } else {
+                None
+            };
+        let mut download_request = request.clone();
+        if let Some(temp_source_dir) = &temp_source_dir {
+            download_request.destination = temp_source_dir.to_string_lossy().into_owned();
+        }
+        let template = output_template(&download_request, &settings.naming_template);
         let mut command = Command::new(yt_dlp);
         command.args([
             "--no-playlist", "--progress", "--newline", "--progress-delta", "0.2", "--no-color", "--windows-filenames", "--trim-filenames", "180",
@@ -190,12 +200,12 @@ impl Downloader {
             "--progress-template", "download:rippr-progress:%(progress._percent_str)s|%(progress._speed_str)s|%(progress.eta)s|%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.total_bytes_estimate)s",
             "--print", "after_move:rippr-file:%(filepath)s", "-o", &template,
         ]);
-        let selector = format_selector(&request);
+        let selector = format_selector(&download_request);
         command.args(["-f", &selector]);
         if let Some(path) = ffmpeg.as_ref() {
             command.arg("--ffmpeg-location").arg(path);
         }
-        apply_format_arguments(&mut command, &request);
+        apply_format_arguments(&mut command, &download_request);
         command
             .arg(&request.url)
             .stdin(Stdio::null())
@@ -203,9 +213,13 @@ impl Downloader {
             .stderr(Stdio::piped())
             .kill_on_drop(true);
 
-        let mut child = command
-            .spawn()
-            .map_err(|error| RipprError::DownloadFailed(error.to_string()))?;
+        let mut child = match command.spawn() {
+            Ok(child) => child,
+            Err(error) => {
+                cleanup_conversion_temp_dir(temp_source_dir.as_deref()).await;
+                return Err(RipprError::DownloadFailed(error.to_string()));
+            }
+        };
         let stdout = child
             .stdout
             .take()
@@ -217,7 +231,7 @@ impl Downloader {
         let (lines_tx, mut lines_rx) = mpsc::unbounded_channel::<String>();
         spawn_line_reader(stdout, lines_tx.clone());
         spawn_line_reader(stderr, lines_tx);
-        let mut final_path: Option<String> = None;
+        let mut reported_paths = Vec::new();
         let mut last_progress: Option<DownloadProgress> = None;
         let mut errors = Vec::new();
 
@@ -243,6 +257,7 @@ impl Downloader {
             tokio::select! {
                 _ = cancellation.cancelled() => {
                     let _ = child.kill().await;
+                    cleanup_conversion_temp_dir(temp_source_dir.as_deref()).await;
                     self.emit_cancelled(job_id);
                     return Ok(());
                 }
@@ -252,7 +267,9 @@ impl Downloader {
                         last_progress = Some(progress.clone());
                         self.emit(progress);
                     }
-                    else if let Some(path) = line.strip_prefix("rippr-file:") { final_path = Some(path.trim().to_owned()); }
+                    else if let Some(path) = line.strip_prefix("rippr-file:") {
+                        reported_paths.push(normalize_reported_path(path, Path::new(&download_request.destination)));
+                    }
                     else if line.contains("[Merger]") || line.contains("[ExtractAudio]") || line.contains("[VideoRemuxer]") {
                         let processing = DownloadProgress {
                             job_id: job_id.into(),
@@ -272,8 +289,15 @@ impl Downloader {
             }
         }
 
-        let status = child.wait().await?;
+        let status = match child.wait().await {
+            Ok(status) => status,
+            Err(error) => {
+                cleanup_conversion_temp_dir(temp_source_dir.as_deref()).await;
+                return Err(error.into());
+            }
+        };
         if !status.success() {
+            cleanup_conversion_temp_dir(temp_source_dir.as_deref()).await;
             return Err(RipprError::DownloadFailed(
                 errors
                     .last()
@@ -281,9 +305,13 @@ impl Downloader {
                     .unwrap_or_else(|| format!("yt-dlp exited with {status}")),
             ));
         }
-        let mut final_path = final_path.ok_or_else(|| {
-            RipprError::DownloadFailed("yt-dlp completed without reporting the output file.".into())
-        })?;
+        let mut final_path = match wait_for_downloaded_file(&reported_paths).await {
+            Ok(path) => path,
+            Err(error) => {
+                cleanup_conversion_temp_dir(temp_source_dir.as_deref()).await;
+                return Err(error);
+            }
+        };
         if request.transcode_for_premiere {
             let processing = DownloadProgress {
                 job_id: job_id.into(),
@@ -291,10 +319,8 @@ impl Downloader {
                 percent: Some(0.0),
                 speed: None,
                 eta_seconds: None,
-                downloaded_bytes: last_progress
-                    .as_ref()
-                    .and_then(|value| value.downloaded_bytes),
-                total_bytes: last_progress.as_ref().and_then(|value| value.total_bytes),
+                downloaded_bytes: None,
+                total_bytes: None,
                 file_path: None,
                 message: Some("Converting to H.264/AAC for Premiere".into()),
             };
@@ -305,16 +331,20 @@ impl Downloader {
                 .metadata
                 .as_ref()
                 .and_then(|metadata| metadata.duration_seconds);
-            let Some(converted_path) = self
+            let conversion_result = self
                 .transcode_for_premiere(
                     job_id,
                     &final_path,
                     ffmpeg,
+                    temp_source_dir
+                        .as_deref()
+                        .map(|_| Path::new(&request.destination)),
                     duration_seconds,
                     &cancellation,
                 )
-                .await?
-            else {
+                .await;
+            cleanup_conversion_temp_dir(temp_source_dir.as_deref()).await;
+            let Some(converted_path) = conversion_result? else {
                 return Ok(());
             };
             final_path = converted_path;
@@ -515,6 +545,140 @@ fn output_template(request: &DownloadRequest, default_template: &str) -> String 
         .into_owned()
 }
 
+fn normalize_reported_path(raw: &str, destination: &Path) -> String {
+    let trimmed = raw.trim().trim_matches(['"', '\'']);
+    let path = PathBuf::from(trimmed);
+    let path = if path.is_absolute() {
+        path
+    } else {
+        destination.join(path)
+    };
+    path.to_string_lossy().into_owned()
+}
+
+async fn wait_for_downloaded_file(paths: &[String]) -> Result<String, RipprError> {
+    if paths.is_empty() {
+        return Err(RipprError::DownloadFailed(
+            "yt-dlp completed without reporting the output file.".into(),
+        ));
+    }
+
+    for _ in 0..40 {
+        for path in paths.iter().rev() {
+            let path = PathBuf::from(path);
+            if path.is_file() {
+                return Ok(path.to_string_lossy().into_owned());
+            }
+            if let Some(windows_variant) = windows_filename_variant(&path)
+                && windows_variant.is_file()
+            {
+                return Ok(windows_variant.to_string_lossy().into_owned());
+            }
+            if let Some(equivalent) = find_equivalent_file(&path).await {
+                return Ok(equivalent.to_string_lossy().into_owned());
+            }
+        }
+        sleep(Duration::from_millis(250)).await;
+    }
+
+    let reported = paths
+        .iter()
+        .rev()
+        .take(3)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ");
+    Err(RipprError::DownloadFailed(format!(
+        "The downloaded file was not available for Premiere conversion. yt-dlp reported: {reported}"
+    )))
+}
+
+async fn create_conversion_temp_dir(job_id: &str) -> Result<PathBuf, RipprError> {
+    let directory = std::env::temp_dir().join("Rippr").join(job_id);
+    tokio::fs::create_dir_all(&directory).await?;
+    Ok(directory)
+}
+
+async fn cleanup_conversion_temp_dir(directory: Option<&Path>) {
+    if let Some(directory) = directory {
+        let _ = tokio::fs::remove_dir_all(directory).await;
+    }
+}
+
+fn windows_filename_variant(path: &Path) -> Option<PathBuf> {
+    let file_name = path.file_name()?.to_str()?;
+    let sanitized = file_name
+        .chars()
+        .map(|character| match character {
+            '"' => '＂',
+            '*' => '＊',
+            ':' => '：',
+            '<' => '＜',
+            '>' => '＞',
+            '?' => '？',
+            '|' => '｜',
+            character => character,
+        })
+        .collect::<String>();
+    (sanitized != file_name).then(|| path.with_file_name(sanitized))
+}
+
+async fn find_equivalent_file(path: &Path) -> Option<PathBuf> {
+    let parent = path.parent()?;
+    let expected = filename_equivalence_key(path.file_name()?.to_str()?);
+    if expected.is_empty() {
+        return None;
+    }
+
+    let mut entries = tokio::fs::read_dir(parent).await.ok()?;
+    let mut newest: Option<(std::time::SystemTime, PathBuf)> = None;
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let candidate = entry.path();
+        if !candidate.is_file() || candidate.extension().is_some_and(|value| value == "part") {
+            continue;
+        }
+        let Some(name) = candidate.file_name().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        if filename_equivalence_key(name) != expected {
+            continue;
+        }
+        let modified = entry
+            .metadata()
+            .await
+            .and_then(|metadata| metadata.modified())
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+        let is_newer = newest
+            .as_ref()
+            .map(|(current, _)| modified > *current)
+            .unwrap_or(true);
+        if is_newer {
+            newest = Some((modified, candidate));
+        }
+    }
+    newest.map(|(_, path)| path)
+}
+
+fn filename_equivalence_key(value: &str) -> String {
+    value
+        .chars()
+        .map(|character| match character {
+            '＂' => '"',
+            '＊' => '*',
+            '：' => ':',
+            '＜' => '<',
+            '＞' => '>',
+            '？' => '?',
+            '｜' => '|',
+            character => character,
+        })
+        .filter(|character| {
+            !matches!(character, '"' | '*' | ':' | '<' | '>' | '?' | '|') && !character.is_control()
+        })
+        .collect::<String>()
+        .to_lowercase()
+}
+
 fn sanitize_custom_filename(value: &str) -> Option<String> {
     let mut value: String = value
         .trim()
@@ -591,6 +755,7 @@ impl Downloader {
         job_id: &str,
         input: &str,
         ffmpeg: &Path,
+        output_directory: Option<&Path>,
         duration_seconds: Option<f64>,
         cancellation: &CancellationToken,
     ) -> Result<Option<String>, RipprError> {
@@ -605,8 +770,15 @@ impl Downloader {
             .file_stem()
             .and_then(|value| value.to_str())
             .unwrap_or("rippr-download");
-        let output_path = input_path.with_extension("mp4");
-        let temporary_path = parent.join(format!(".{stem}.rippr-{}.mp4", Uuid::new_v4()));
+        let mut output_path = output_directory
+            .and_then(|directory| input_path.file_name().map(|name| directory.join(name)))
+            .unwrap_or_else(|| input_path.clone())
+            .with_extension("mp4");
+        if output_directory.is_some() {
+            output_path = next_available_output_path(&output_path).await?;
+        }
+        let output_parent = output_path.parent().unwrap_or(parent);
+        let temporary_path = output_parent.join(format!(".{stem}.rippr-{}.mp4", Uuid::new_v4()));
         let input_arg = input_path.to_string_lossy().into_owned();
         let temporary_arg = temporary_path.to_string_lossy().into_owned();
         let mut child = Command::new(ffmpeg)
@@ -766,7 +938,7 @@ impl Downloader {
                 format!("FFmpeg could not create a Premiere-compatible file: {detail}")
             }));
         }
-        if output_path.exists() {
+        if output_path == input_path && output_path.exists() {
             tokio::fs::remove_file(&output_path).await?;
         }
         tokio::fs::rename(&temporary_path, &output_path).await?;
@@ -775,6 +947,31 @@ impl Downloader {
         }
         Ok(Some(output_path.to_string_lossy().into_owned()))
     }
+}
+
+async fn next_available_output_path(path: &Path) -> Result<PathBuf, RipprError> {
+    if !path.exists() {
+        return Ok(path.to_owned());
+    }
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("rippr-download");
+    let extension = path.extension().and_then(|value| value.to_str());
+    for index in 1..=10_000u32 {
+        let filename = match extension {
+            Some(extension) => format!("{stem} ({index}).{extension}"),
+            None => format!("{stem} ({index})"),
+        };
+        let candidate = parent.join(filename);
+        if !candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+    Err(RipprError::DownloadFailed(
+        "Could not find an unused output filename.".into(),
+    ))
 }
 
 fn quality_height(quality: &str) -> Option<u64> {
@@ -898,10 +1095,11 @@ mod tests {
             naming_template: Some("%(title)s".into()),
             transcode_for_premiere: false,
         };
-        assert_eq!(
-            output_template(&request, "%(title)s"),
-            "/tmp/rippr/_Client_ Cut.%(ext)s"
-        );
+        let expected = Path::new("/tmp/rippr")
+            .join("_Client_ Cut.%(ext)s")
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(output_template(&request, "%(title)s"), expected);
     }
 
     #[test]
@@ -917,9 +1115,74 @@ mod tests {
             naming_template: Some("%(title)s [%(resolution)s]".into()),
             transcode_for_premiere: false,
         };
+        let expected = Path::new("/tmp/rippr")
+            .join("%(title)s [%(resolution)s].%(ext)s")
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(output_template(&request, "fallback"), expected);
+    }
+
+    #[test]
+    fn normalizes_quoted_relative_reported_paths() {
+        let expected = Path::new("/tmp/rippr")
+            .join("clip.mp4")
+            .to_string_lossy()
+            .into_owned();
         assert_eq!(
-            output_template(&request, "fallback"),
-            "/tmp/rippr/%(title)s [%(resolution)s].%(ext)s"
+            normalize_reported_path(" \"clip.mp4\" ", Path::new("/tmp/rippr")),
+            expected
         );
+    }
+
+    #[tokio::test]
+    async fn chooses_the_last_existing_reported_path() {
+        let directory = tempfile::tempdir().expect("temporary directory should be created");
+        let existing = directory.path().join("merged.mp4");
+        tokio::fs::write(&existing, b"test").await.unwrap();
+        let paths = vec![
+            directory
+                .path()
+                .join("intermediate.webm")
+                .to_string_lossy()
+                .into_owned(),
+            existing.to_string_lossy().into_owned(),
+        ];
+
+        assert_eq!(wait_for_downloaded_file(&paths).await.unwrap(), paths[1]);
+    }
+
+    #[test]
+    fn maps_windows_filename_characters_to_full_width_variants() {
+        let path = Path::new("/tmp/OVERRATED: The Worst Fitness Advice Ever.mp4");
+        let variant = windows_filename_variant(path).expect("a sanitized variant should exist");
+        assert_eq!(
+            variant.file_name().unwrap().to_string_lossy(),
+            "OVERRATED： The Worst Fitness Advice Ever.mp4"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolves_reported_name_when_windows_removed_an_invalid_character() {
+        let directory = tempfile::tempdir().expect("temporary directory should be created");
+        let actual = directory
+            .path()
+            .join("OVERRATED： The Worst Fitness Advice Ever [1920x1080].mp4");
+        tokio::fs::write(&actual, b"test").await.unwrap();
+        let reported = directory
+            .path()
+            .join("OVERRATED The Worst Fitness Advice Ever [1920x1080].mp4")
+            .to_string_lossy()
+            .into_owned();
+
+        assert_eq!(wait_for_downloaded_file(&[reported]).await.unwrap(), actual);
+    }
+
+    #[tokio::test]
+    async fn chooses_a_unique_output_name_instead_of_overwriting() {
+        let directory = tempfile::tempdir().expect("temporary directory should be created");
+        let existing = directory.path().join("clip.mp4");
+        tokio::fs::write(&existing, b"existing").await.unwrap();
+        let next = next_available_output_path(&existing).await.unwrap();
+        assert_eq!(next, directory.path().join("clip (1).mp4"));
     }
 }

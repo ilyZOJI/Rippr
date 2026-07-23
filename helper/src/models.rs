@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub const PROTOCOL_VERSION: u32 = 1;
-pub const SETTINGS_SCHEMA_VERSION: u32 = 2;
+pub const SETTINGS_SCHEMA_VERSION: u32 = 3;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -66,6 +66,7 @@ pub struct AppSettings {
     pub auto_import: bool,
     pub remember_last_destination: bool,
     pub clipboard_monitoring: bool,
+    pub use_temp_conversion_source: bool,
     pub concurrent_downloads: u8,
     pub retry_count: u8,
     pub naming_template: String,
@@ -89,6 +90,7 @@ impl Default for AppSettings {
             auto_import: true,
             remember_last_destination: true,
             clipboard_monitoring: false,
+            use_temp_conversion_source: true,
             concurrent_downloads: 2,
             retry_count: 3,
             naming_template: "%(title)s [%(resolution)s]".into(),
@@ -113,6 +115,7 @@ pub struct AppSettingsPatch {
     pub auto_import: Option<bool>,
     pub remember_last_destination: Option<bool>,
     pub clipboard_monitoring: Option<bool>,
+    pub use_temp_conversion_source: Option<bool>,
     pub concurrent_downloads: Option<u8>,
     pub retry_count: Option<u8>,
     pub naming_template: Option<String>,
@@ -160,6 +163,9 @@ impl AppSettings {
         }
         if let Some(value) = patch.clipboard_monitoring {
             self.clipboard_monitoring = value;
+        }
+        if let Some(value) = patch.use_temp_conversion_source {
+            self.use_temp_conversion_source = value;
         }
         if let Some(value) = patch.concurrent_downloads {
             self.concurrent_downloads = value.clamp(1, 6);

@@ -50,6 +50,8 @@ export interface AppSettings {
   autoImport: boolean;
   rememberLastDestination: boolean;
   clipboardMonitoring: boolean;
+  /** Stage conversion sources in Rippr's temporary workspace before transcoding. */
+  useTempConversionSource: boolean;
   concurrentDownloads: number;
   retryCount: number;
   namingTemplate: string;
