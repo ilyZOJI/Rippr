@@ -292,6 +292,8 @@ fn mount_root_missing(path: &Path) -> bool {
             return !root.exists();
         }
     }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let _ = path;
     false
 }
 
