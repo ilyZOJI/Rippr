@@ -2,8 +2,10 @@ use crate::{
     error::RipprError,
     models::{AppSettings, DependencyStatus, FolderStatus, OkResponse},
 };
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+use std::path::Component;
 use std::{
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
     process::Stdio,
 };
 use tokio::process::Command;
@@ -22,13 +24,13 @@ pub fn resolve_tool(name: &str, explicit: Option<&str>) -> Result<PathBuf, Rippr
         "ffmpeg" => "RIPPR_FFMPEG_PATH",
         _ => "",
     };
-    if !env_name.is_empty()
-        && let Ok(path) = std::env::var(env_name)
-    {
-        let path = PathBuf::from(path);
-        if path.is_file() {
-            return Ok(path);
-        }
+    let env_path = (!env_name.is_empty())
+        .then(|| std::env::var(env_name).ok())
+        .flatten()
+        .map(PathBuf::from)
+        .filter(|path| path.is_file());
+    if let Some(path) = env_path {
+        return Ok(path);
     }
 
     if let Ok(path) = which::which(name) {
@@ -277,9 +279,10 @@ fn mount_root_missing(path: &Path) -> bool {
         let mut components = path.components();
         if matches!(components.next(), Some(Component::RootDir))
             && matches!(components.next(), Some(Component::Normal(name)) if name == "Volumes")
-            && let Some(Component::Normal(volume)) = components.next()
         {
-            return !Path::new("/Volumes").join(volume).exists();
+            if let Some(Component::Normal(volume)) = components.next() {
+                return !Path::new("/Volumes").join(volume).exists();
+            }
         }
     }
     #[cfg(target_os = "windows")]

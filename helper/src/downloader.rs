@@ -579,9 +579,9 @@ async fn wait_for_downloaded_file(paths: &[String]) -> Result<String, RipprError
             if path.is_file() {
                 return Ok(path.to_string_lossy().into_owned());
             }
-            if let Some(windows_variant) = windows_filename_variant(&path)
-                && windows_variant.is_file()
-            {
+            let windows_variant =
+                windows_filename_variant(&path).filter(|variant| variant.is_file());
+            if let Some(windows_variant) = windows_variant {
                 return Ok(windows_variant.to_string_lossy().into_owned());
             }
             if let Some(equivalent) = find_equivalent_file(&path).await {
@@ -1184,7 +1184,10 @@ mod tests {
             .to_string_lossy()
             .into_owned();
 
-        assert_eq!(wait_for_downloaded_file(&[reported]).await.unwrap(), actual);
+        assert_eq!(
+            wait_for_downloaded_file(&[reported]).await.unwrap(),
+            actual.to_string_lossy()
+        );
     }
 
     #[tokio::test]
