@@ -68,7 +68,7 @@ data.
 - Windows 10/11, macOS, or Linux for development
 - Node.js 22.13 or newer (required by pnpm 11)
 - pnpm 11
-- Rust 1.85 or newer
+- Rust 1.86 or newer
 - Adobe Premiere Pro 25.6 or newer for host testing
 - Adobe UXP Developer Tool 2.2 or newer for loading the panel in Premiere
 - yt-dlp and FFmpeg/FFprobe on `PATH`, configured in Settings, or placed in
